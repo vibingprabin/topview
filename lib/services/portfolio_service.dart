@@ -1,13 +1,9 @@
 import 'package:topview/models/holding.dart';
 import 'package:topview/models/transaction.dart';
-import 'package:topview/models/share_data.dart'; // Import ShareData
 
 class PortfolioService {
   // Calculate current holdings based on transactions
-  static List<Holding> calculateHoldings(
-    List<Transaction> transactions, 
-    Map<String, ShareData> liveShareData, // Add live share data as a parameter
-  ) {
+  static List<Holding> calculateHoldings(List<Transaction> transactions) {
     final Map<String, List<Transaction>> groupedBySymbol = {};
     for (var transaction in transactions) {
       if (!groupedBySymbol.containsKey(transaction.symbol)) {
@@ -18,8 +14,6 @@ class PortfolioService {
 
     List<Holding> holdings = [];
     groupedBySymbol.forEach((symbol, transactions) {
-      // int totalSoldQuantity = 0; // Not directly needed for average buy price of current holdings
-
       // Calculate total quantity and total cost for BUY transactions only for current holdings
       // Sell transactions are handled by realized P/L
       List<Transaction> buyTransactions = transactions.where((t) => t.transactionType == 'Purchased').toList();
@@ -47,26 +41,19 @@ class PortfolioService {
         }
         
         double currentInvestedValue = totalQuantity * averageBuyPrice;
+        
+        // Without live data, current value equals invested value (no profit/loss shown)
+        double currentValue = currentInvestedValue;
 
-        ShareData? currentShareInfo = liveShareData[symbol];
-        // Use the new ltpNumeric getter from ShareData
-        double ltp = currentShareInfo?.ltpNumeric ?? averageBuyPrice; // Use averageBuyPrice if LTP is not available
-        String? percentChange = currentShareInfo?.percentChange;
-
-        double currentValue = totalQuantity * ltp;
-        double unrealizedPL = currentValue - currentInvestedValue;
-        double unrealizedPLPercentage = (currentInvestedValue != 0 && currentInvestedValue.abs() > 0.001) ? (unrealizedPL / currentInvestedValue) * 100 : 0;
-
+        
         holdings.add(Holding(
           symbol: symbol,
           quantity: totalQuantity,
           averageBuyPrice: averageBuyPrice,
           investedValue: currentInvestedValue,
-          ltp: ltp,
-          percentChange: percentChange,
           currentValue: currentValue,
-          unrealizedPL: unrealizedPL,
-          unrealizedPLPercentage: unrealizedPLPercentage,
+          unrealizedPL: 0, // No profit/loss without live data
+          unrealizedPLPercentage: 0,
         ));
       }
     });
@@ -91,64 +78,50 @@ class PortfolioService {
     groupedBySymbol.forEach((symbol, transactions) {
       List<Transaction> buys = [];
       
-      // First pass: collect all buys
+      // Sort transactions by date to maintain FIFO
+      transactions.sort((a, b) => a.date.compareTo(b.date));
+      
+      // Process transactions in chronological order
       for (var transaction in transactions) {
         if (transaction.transactionType == 'Purchased') {
           buys.add(transaction);
-        }
-      }
-      
-      // Second pass: process sells using FIFO (First In, First Out)
-      for (var transaction in transactions) {
-        if (transaction.transactionType == 'Sold') {
+        } else if (transaction.transactionType == 'Sold') {
           int remainingSellQuantity = transaction.quantity;
+          double sellPrice = transaction.price;
           
+          // Apply FIFO principle
           while (remainingSellQuantity > 0 && buys.isNotEmpty) {
             var oldestBuy = buys.first;
-            int buyQuantityToUse = oldestBuy.quantity < remainingSellQuantity ? 
-                oldestBuy.quantity : remainingSellQuantity;
-                  // Calculate profit/loss for this portion
-            double buyValue = buyQuantityToUse * oldestBuy.price;
-            double sellValue = buyQuantityToUse * transaction.price;
-            realizedPL += (sellValue - buyValue);
             
-            // Update remaining quantities
-            remainingSellQuantity -= buyQuantityToUse;
-            
-            if (buyQuantityToUse == oldestBuy.quantity) {
-              buys.removeAt(0); // Remove fully used buy transaction
+            if (oldestBuy.quantity <= remainingSellQuantity) {
+              // Sell entire oldest buy lot
+              realizedPL += oldestBuy.quantity * (sellPrice - oldestBuy.price);
+              remainingSellQuantity -= oldestBuy.quantity;
+              buys.removeAt(0);
             } else {
-              // Update the quantity of the buy transaction
+              // Partial sell of oldest buy lot
+              realizedPL += remainingSellQuantity * (sellPrice - oldestBuy.price);
               buys[0] = Transaction(
                 clientId: oldestBuy.clientId,
                 transactionType: oldestBuy.transactionType,
                 date: oldestBuy.date,
                 symbol: oldestBuy.symbol,
-                quantity: oldestBuy.quantity - buyQuantityToUse,
+                quantity: oldestBuy.quantity - remainingSellQuantity,
                 price: oldestBuy.price,
                 brokerNumber: oldestBuy.brokerNumber,
               );
+              remainingSellQuantity = 0;
             }
           }
         }
-      }    });
+      }
+    });
     
-    return double.parse(realizedPL.toStringAsFixed(2));
+    return realizedPL;
   }
   
-  // Calculate break-even portfolio value
+  // Calculate break-even value (total invested amount)
   static double calculateBreakEvenValue(List<Transaction> transactions, List<Holding> holdings) {
-    double totalInvested = 0;
-    
-    // Sum the total amount invested across all purchases
-    for (var transaction in transactions) {
-      if (transaction.transactionType == 'Purchased') {
-        totalInvested += transaction.quantity * transaction.price;      } else if (transaction.transactionType == 'Sold') {
-        totalInvested -= transaction.quantity * transaction.price;
-      }
-    }
-    
-    // The break-even value is what the portfolio must reach to recover the investment
-    return double.parse(totalInvested.toStringAsFixed(2));
+    return holdings.fold(0, (sum, holding) => sum + holding.investedValue);
   }
 }

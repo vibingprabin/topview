@@ -1,16 +1,12 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter_sms_inbox/flutter_sms_inbox.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+import 'dart:convert';
 import 'package:topview/models/holding.dart';
 import 'package:topview/models/transaction.dart';
-import 'package:topview/models/client.dart';
-import 'package:topview/services/portfolio_service.dart';
 import 'package:topview/services/sms_service.dart';
-import 'package:topview/services/client_dao.dart';
 import 'package:topview/utils/message_parser.dart';
-import '../services/transaction_dao_new.dart';
-import '../models/share_data.dart'; // Import ShareData
-import '../services/share_scraping_service.dart'; // Import ShareScrapingService
-import '../services/database_service.dart'; // Import DatabaseService for share data
+import 'package:topview/services/supabase_service.dart';
 
 class PortfolioProvider extends ChangeNotifier {
   List<Transaction> _transactions = [];
@@ -23,11 +19,7 @@ class PortfolioProvider extends ChangeNotifier {
   bool _hasPermissionError = false;
   Transaction? _lastTransaction;
 
-  Map<String, ShareData> _liveShareDataMap = {}; // To store live share data
-  final ShareScrapingService _shareScrapingService = ShareScrapingService(); // Instance of scraping service
-  bool _isShareDataLoading = false;
-  String? _shareDataError;
-  String? _shareDataDate;
+  final SupabaseService _supabaseService = SupabaseService();
 
   List<Transaction> get transactions => _transactions;
   List<Holding> get holdings => _holdings;
@@ -38,35 +30,105 @@ class PortfolioProvider extends ChangeNotifier {
   bool get isLoadingMessages => _isLoadingMessages;
   bool get hasPermissionError => _hasPermissionError;
   Transaction? get lastTransaction => _lastTransaction;
-  Map<String, ShareData> get liveShareDataMap => _liveShareDataMap;
-  bool get isShareDataLoading => _isShareDataLoading;
-  String? get shareDataError => _shareDataError;
-  String? get shareDataDate => _shareDataDate;
 
   // Initialize portfolio data
   Future<void> initialize() async {
     try {
-      await _loadClientsFromDatabase();
-      if (_availableClientIds.isNotEmpty) {
-        setClientId(_availableClientIds.first);
-      } else {
-        // If no clients, still try to fetch share data for general use if needed elsewhere
-        await fetchLiveShareData(); 
-      }
+      await _loadLocalData();
       await _fetchSmsMessagesIncrementally();
     } catch (e) {
       debugPrint('Error initializing portfolio: $e');
     }
   }
 
-  // Load clients from database
-  Future<void> _loadClientsFromDatabase() async {
+  // Load data from local storage
+  Future<void> _loadLocalData() async {
     try {
-      final clients = await ClientDAO.getAllClients();
-      _availableClientIds = clients.map((c) => c.id).toList();
+      final prefs = await SharedPreferences.getInstance();
+      
+      // Load available client IDs
+      final clientIdsJson = prefs.getString('available_client_ids');
+      if (clientIdsJson != null) {
+        final clientIdsList = jsonDecode(clientIdsJson) as List;
+        _availableClientIds = clientIdsList.cast<String>();
+      }
+      
+      // Load current client ID
+      _currentClientId = prefs.getString('current_client_id') ?? '';
+      
+      // Load transactions for current client
+      if (_currentClientId.isNotEmpty) {
+        await _loadTransactionsFromLocal(_currentClientId);
+      }
+      
+      // Set first available client if current one is empty
+      if (_currentClientId.isEmpty && _availableClientIds.isNotEmpty) {
+        setClientId(_availableClientIds.first);
+      }
+      
       notifyListeners();
     } catch (e) {
-      debugPrint('Error loading clients from database: $e');
+      debugPrint('Error loading local data: $e');
+    }
+  }
+
+  // Load transactions from local storage
+  Future<void> _loadTransactionsFromLocal(String clientId) async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final transactionsJson = prefs.getString('transactions_$clientId');
+      
+      if (transactionsJson != null) {
+        final transactionsList = jsonDecode(transactionsJson) as List;
+        _transactions = transactionsList
+            .map((json) => Transaction.fromJson(json))
+            .toList();
+        
+        // Sort by date (newest first)
+        _transactions.sort((a, b) => b.date.compareTo(a.date));
+        
+        // Set last transaction
+        _lastTransaction = _transactions.isNotEmpty ? _transactions.first : null;
+        
+        // Calculate holdings and profits
+        _calculateHoldingsFromTransactions();
+      } else {
+        _transactions = [];
+        _holdings = [];
+        _lastTransaction = null;
+      }
+    } catch (e) {
+      debugPrint('Error loading transactions from local: $e');
+      _transactions = [];
+      _holdings = [];
+      _lastTransaction = null;
+    }
+  }
+
+  // Save transactions to local storage
+  Future<void> _saveTransactionsToLocal(String clientId) async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final transactionsJson = jsonEncode(
+        _transactions.map((t) => t.toJson()).toList(),
+      );
+      await prefs.setString('transactions_$clientId', transactionsJson);
+    } catch (e) {
+      debugPrint('Error saving transactions to local: $e');
+    }
+  }
+
+  // Save client IDs to local storage
+  Future<void> _saveClientIdsToLocal() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString(
+        'available_client_ids', 
+        jsonEncode(_availableClientIds),
+      );
+      await prefs.setString('current_client_id', _currentClientId);
+    } catch (e) {
+      debugPrint('Error saving client IDs to local: $e');
     }
   }
   
@@ -94,7 +156,8 @@ class PortfolioProvider extends ChangeNotifier {
       notifyListeners();
     }
   }
-    // Process all broker messages
+
+  // Process all broker messages
   Future<void> processAllMessages(List<SmsMessage> messages) async {
     Set<String> clientIdSet = {};
     
@@ -107,167 +170,146 @@ class PortfolioProvider extends ChangeNotifier {
     }
     
     _availableClientIds = clientIdSet.toList()..sort();
+    await _saveClientIdsToLocal();
     notifyListeners();
   }
-    // Set active client ID
-  void setClientId(String clientId) {
+
+  // Set active client ID
+  Future<void> setClientId(String clientId) async {
     _currentClientId = clientId;
-    loadTransactions(); // This will also trigger fetchLiveShareData if needed or use existing
+    await _saveClientIdsToLocal();
+    await _loadTransactionsFromLocal(_currentClientId);
+    notifyListeners();
   }
 
-  // Load transactions for current client ID
-  Future<void> loadTransactions() async {
-    if (_currentClientId.isEmpty) return;
-    try {
-      _transactions = await TransactionDAO.getTransactionsByClientId(_currentClientId);
-      _lastTransaction = await TransactionDAO.getLatestTransaction(_currentClientId);
-      // Fetch live share data before calculating metrics
-      // This ensures metrics are calculated with the latest available prices
-      await fetchLiveShareData(); 
-      _calculatePortfolioMetrics(); // This will now use _liveShareDataMap
-      notifyListeners();
-    } catch (e) {
-      debugPrint('Error loading transactions: $e');
-    }
-  }
-    // Process new broker message
+  // Process new broker message
   Future<bool> processMessage(String message, {bool useExtractedClientId = false}) async {
-    final clientId = useExtractedClientId ? MessageParser.extractClientId(message) : _currentClientId;
-    
-    if (clientId == null && useExtractedClientId) {
-      return false;
-    }
-    
-    final newTransactions = MessageParser.parseMessage(
-      message, 
-      clientId: useExtractedClientId ? null : _currentClientId
-    );
-    
-    if (newTransactions.isNotEmpty) {
-      await TransactionDAO.insertTransactions(newTransactions);
+    try {
+      final transactions = MessageParser.parseMessage(
+        message, 
+        clientId: useExtractedClientId ? null : _currentClientId,
+      );
       
-      // Add new client ID to the list if needed
-      if (useExtractedClientId && clientId != null && !_availableClientIds.contains(clientId)) {
-        _availableClientIds.add(clientId);
-        _availableClientIds.sort();
+      if (transactions.isEmpty) return false;
+      
+      bool hasNewTransaction = false;
+      for (var transaction in transactions) {
+        if (!_isDuplicateTransaction(transaction)) {
+          _transactions.add(transaction);
+          hasNewTransaction = true;
+          
+          // Also save to Supabase (currently no-op)
+          await _supabaseService.insertOrUpdateTransaction(transaction);
+        }
+      }
+      
+      if (hasNewTransaction) {
+        // Sort transactions by date (newest first)
+        _transactions.sort((a, b) => b.date.compareTo(a.date));
+        _lastTransaction = _transactions.first;
         
-        // Create client record
-        final client = Client(
-          id: clientId,
-          createdAt: DateTime.now(),
-          lastTransactionDate: newTransactions.first.date,
-        );
-        await ClientDAO.insertOrUpdateClient(client);
+        // Save to local storage
+        await _saveTransactionsToLocal(_currentClientId);
+        
+        // Recalculate holdings
+        _calculateHoldingsFromTransactions();
         
         notifyListeners();
+        return true;
       }
       
-      // Update client's last transaction date
-      if (clientId != null) {
-        await ClientDAO.updateLastTransactionDate(clientId, newTransactions.first.date);
-      }
+      return false;
+    } catch (e) {
+      debugPrint('Error processing message: $e');
+      return false;
+    }
+  }
+
+  // Check if transaction is duplicate
+  bool _isDuplicateTransaction(Transaction newTransaction) {
+    return _transactions.any((existing) =>
+        existing.clientId == newTransaction.clientId &&
+        existing.transactionType == newTransaction.transactionType &&
+        existing.date.isAtSameMomentAs(newTransaction.date) &&
+        existing.symbol == newTransaction.symbol &&
+        existing.quantity == newTransaction.quantity &&
+        existing.price == newTransaction.price &&
+        existing.brokerNumber == newTransaction.brokerNumber);
+  }
+
+  // Calculate holdings from transactions
+  void _calculateHoldingsFromTransactions() {
+    if (_transactions.isEmpty) {
+      _holdings = [];
+      _realizedProfitLoss = 0;
+      _breakEvenValue = 0;
+      return;
+    }
+
+    Map<String, _HoldingCalculation> holdingMap = {};
+    double totalRealizedPL = 0;
+
+    for (var transaction in _transactions) {
+      final symbol = transaction.symbol;
+      holdingMap[symbol] ??= _HoldingCalculation();
       
-      // Only reload if the current client ID matches
-      if (newTransactions.first.clientId == _currentClientId) {
-        await loadTransactions();
-      }
+      final calc = holdingMap[symbol]!;
       
-      return true;
+      if (transaction.transactionType == 'Purchased') {
+        calc.totalQuantity += transaction.quantity;
+        calc.totalInvested += transaction.quantity * transaction.price;
+      } else if (transaction.transactionType == 'Sold') {
+        final soldQuantity = transaction.quantity;
+        final soldPrice = transaction.price;
+        
+        if (calc.totalQuantity > 0) {
+          final avgBuyPrice = calc.totalInvested / calc.totalQuantity;
+          final realizedPL = (soldPrice - avgBuyPrice) * soldQuantity;
+          totalRealizedPL += realizedPL;
+          
+          // Reduce holdings
+          calc.totalQuantity -= soldQuantity;
+          calc.totalInvested -= avgBuyPrice * soldQuantity;
+          
+          // Ensure no negative quantities
+          if (calc.totalQuantity < 0) calc.totalQuantity = 0;
+          if (calc.totalInvested < 0) calc.totalInvested = 0;
+        }
+      }
+    }
+
+    // Create holdings list
+    _holdings = holdingMap.entries
+        .where((entry) => entry.value.totalQuantity > 0)
+        .map((entry) {
+          final symbol = entry.key;
+          final calc = entry.value;
+          final avgBuyPrice = calc.totalInvested / calc.totalQuantity;
+          
+          // For now, use average buy price as current value (no live data)
+          final currentValue = calc.totalQuantity * avgBuyPrice;
+          
+          return Holding(
+            symbol: symbol,
+            quantity: calc.totalQuantity,
+            averageBuyPrice: avgBuyPrice,
+            investedValue: calc.totalInvested,
+            currentValue: currentValue,
+            unrealizedPL: currentValue - calc.totalInvested,
+            unrealizedPLPercentage: ((currentValue - calc.totalInvested) / calc.totalInvested) * 100,
+          );
+        }).toList();
+
+    _realizedProfitLoss = totalRealizedPL;
+    _breakEvenValue = _holdings.fold(0, (sum, holding) => sum + holding.investedValue);
+  }
+
+  // Get portfolio summary
+  String getPortfolioSummary() {
+    if (_lastTransaction == null) {
+      return "No transactions recorded yet.";
     }
     
-    return false;
-  }
-  
-  // Fetch live share data
-  Future<void> fetchLiveShareData({bool forceScrape = false}) async {
-    _isShareDataLoading = true;
-    _shareDataError = null;
-    notifyListeners();
-
-    try {
-      // Use the correctly named method: fetchAndProcessData
-      final result = await _shareScrapingService.fetchAndProcessData(forceScrape: forceScrape);
-      
-      List<ShareData> scrapedData = result['data'] as List<ShareData>;
-      _shareDataDate = result['date'] as String?;
-      _shareDataError = result['error'] as String?;
-
-      _liveShareDataMap = {for (var item in scrapedData) item.symbol: item};
-      
-      if (_transactions.isNotEmpty) {
-        _calculatePortfolioMetrics();
-      }
-
-    } catch (e) {
-      _shareDataError = 'Failed to fetch share data: ${e.toString()}';
-      debugPrint('PortfolioProvider: $_shareDataError');
-    } finally {
-      _isShareDataLoading = false;
-      notifyListeners();
-    }
-  }
-
-  // Method to be called by the settings page button
-  Future<void> forceRefreshShareData() async {
-    // Set loading and error states appropriately for UI feedback
-    _isShareDataLoading = true;
-    _shareDataError = null;
-    notifyListeners();
-
-    // Call fetchLiveShareData with forceScrape = true
-    await fetchLiveShareData(forceScrape: true);
-
-    // No need to set _isShareDataLoading to false here as fetchLiveShareData handles it in its finally block.
-    // notifyListeners() is also called by fetchLiveShareData.
-  }
-
-  // Calculate all portfolio metrics
-  void _calculatePortfolioMetrics() {
-    // Pass the live share data to calculateHoldings
-    _holdings = PortfolioService.calculateHoldings(_transactions, _liveShareDataMap);
-    _realizedProfitLoss = PortfolioService.calculateRealizedProfitLoss(_transactions);
-    _breakEvenValue = PortfolioService.calculateBreakEvenValue(_transactions, _holdings);
-    // Any other metrics that depend on holdings or live data should be recalculated here
-    notifyListeners(); // Notify listeners after all metrics are updated
-  }
-    // Clear all data (for testing)
-  Future<void> clearData() async {
-    await TransactionDAO.deleteAllTransactions();
-    await ClientDAO.deleteAllClients();
-    _availableClientIds = [];
-    _currentClientId = '';
-    _transactions = [];
-    _holdings = [];
-    _lastTransaction = null;
-    notifyListeners();
-  }
-
-  // Search transactions with various filters
-  Future<List<Transaction>> searchTransactions({
-    String? symbol,
-    String? transactionType,
-    DateTime? startDate,
-    DateTime? endDate,
-    int? limit,
-    int? offset,
-  }) async {
-    return await TransactionDAO.searchTransactions(
-      clientId: _currentClientId,
-      symbol: symbol,
-      transactionType: transactionType,
-      startDate: startDate,
-      endDate: endDate,
-      limit: limit,
-      offset: offset,
-    );
-  }
-
-  // Get last transaction insight message
-  String getLastTransactionInsight() {
-    if (_lastTransaction == null) {
-      return "No activity recorded yet.";
-    }
-
     final daysDiff = DateTime.now().difference(_lastTransaction!.date).inDays;
     final transactionType = _lastTransaction!.transactionType == 'Purchased' ? 'Bought' : 'Sold';
     
@@ -281,7 +323,8 @@ class PortfolioProvider extends ChangeNotifier {
       return "No activity recorded in the last $daysDiff days.";
     }
   }
-    // Fetch SMS messages incrementally (only new messages)
+
+  // Fetch SMS messages incrementally (only new messages)
   Future<void> _fetchSmsMessagesIncrementally() async {
     try {
       // Get the latest transaction date to filter new messages
@@ -289,8 +332,8 @@ class PortfolioProvider extends ChangeNotifier {
       if (_availableClientIds.isNotEmpty) {
         final allTransactions = <Transaction>[];
         for (String clientId in _availableClientIds) {
-          final clientTransactions = await TransactionDAO.getTransactionsByClientId(clientId);
-          allTransactions.addAll(clientTransactions);
+          await _loadTransactionsFromLocal(clientId);
+          allTransactions.addAll(_transactions);
         }
         
         if (allTransactions.isNotEmpty) {
@@ -320,4 +363,43 @@ class PortfolioProvider extends ChangeNotifier {
       debugPrint('Error fetching SMS messages incrementally: $e');
     }
   }
+
+  // Clear all data
+  Future<void> clearData() async {
+    try {
+      // Clear local storage
+      final prefs = await SharedPreferences.getInstance();
+      final keys = prefs.getKeys();
+      for (String key in keys) {
+        if (key.startsWith('transactions_') || 
+            key == 'available_client_ids' || 
+            key == 'current_client_id') {
+          await prefs.remove(key);
+        }
+      }
+      
+      // Clear in-memory data
+      _transactions = [];
+      _holdings = [];
+      _availableClientIds = [];
+      _currentClientId = '';
+      _lastTransaction = null;
+      _realizedProfitLoss = 0;
+      _breakEvenValue = 0;
+      
+      // Clear Supabase data (currently no-op)
+      await _supabaseService.clearAllData();
+      
+      notifyListeners();
+    } catch (e) {
+      debugPrint('Error clearing data: $e');
+      rethrow;
+    }
+  }
+}
+
+// Helper class for calculations
+class _HoldingCalculation {
+  int totalQuantity = 0;
+  double totalInvested = 0;
 }
