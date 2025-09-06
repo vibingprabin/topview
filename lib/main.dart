@@ -2,15 +2,15 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:adaptive_theme/adaptive_theme.dart';
 import 'package:topview/providers/portfolio_provider.dart';
-import 'package:topview/screens/main_navigation.dart'; // Restore old home
+import 'package:topview/screens/main_navigation.dart';
 import 'package:topview/themes/app_theme.dart';
-import 'package:topview/services/database_service.dart';
+import 'package:topview/services/supabase_service.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   
-  // Initialize database
-  await DatabaseService.database;
+  // Initialize Supabase service (currently local mode)
+  await SupabaseService().initialize();
   
   // Get saved theme mode
   final savedThemeMode = await AdaptiveTheme.getThemeMode();
@@ -34,7 +34,7 @@ class MyApp extends StatelessWidget {
           title: 'TopView Portfolio Tracker',
           theme: theme,
           darkTheme: darkTheme,
-          home: const MainNavigation(), // Restore old home
+          home: const MainNavigation(),
           debugShowCheckedModeBanner: false,
         ),
       ),

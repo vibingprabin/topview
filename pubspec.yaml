@@ -15,12 +15,14 @@ dependencies:
   intl: ^0.18.1
   flutter_sms_inbox: ^1.0.3
   permission_handler: ^10.2.0
-  sqflite: ^2.3.0
   google_fonts: ^6.1.0
   adaptive_theme: ^3.4.1
   path: ^1.8.3
-  http: ^1.2.1
-  html: ^0.15.4
+  # Supabase for future implementation
+  supabase_flutter: ^2.3.4
+  # UI and animations
+  flutter_animate: ^4.5.0
+  fl_chart: ^0.66.2
 
 dev_dependencies:
   flutter_test:
