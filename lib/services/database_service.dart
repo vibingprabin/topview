@@ -2,11 +2,12 @@ import 'dart:async';
 import 'package:sqflite/sqflite.dart';
 import 'package:path/path.dart';
 import '../models/share_data.dart'; // Import ShareData model
+import 'stop_loss_dao.dart'; // Import StopLossDAO
 
 class DatabaseService {
   static Database? _database;
   static const String _databaseName = 'portfolio.db';
-  static const int _databaseVersion = 2; // Incremented from 1 to 2
+  static const int _databaseVersion = 3; // Incremented from 2 to 3 for stop-loss table
 
   // Table names
   static const String transactionsTable = 'transactions';
@@ -91,11 +92,14 @@ class DatabaseService {
     await db.execute('''
       CREATE INDEX idx_daily_share_data_date ON $dailyShareDataTable(data_date)
     ''');
+
+    // Create stop-loss settings table
+    await StopLossDAO.createTable(db);
   }
 
   // Handle database upgrades
   static Future<void> _onUpgrade(Database db, int oldVersion, int newVersion) async {
-    if (oldVersion < 2) { // Example: If upgrading from version 1 to 2
+    if (oldVersion < 2) { // Upgrading from version 1 to 2
         await db.execute('''
           CREATE TABLE $dailyShareDataTable (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -109,6 +113,10 @@ class DatabaseService {
         ''');
         await db.execute('CREATE INDEX idx_daily_share_data_symbol ON $dailyShareDataTable(symbol)');
         await db.execute('CREATE INDEX idx_daily_share_data_date ON $dailyShareDataTable(data_date)');
+    }
+    
+    if (oldVersion < 3) { // Upgrading to version 3 for stop-loss
+        await StopLossDAO.createTable(db);
     }
     // Add more upgrade steps as needed for future versions
   }
