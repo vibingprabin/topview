@@ -4,6 +4,8 @@ import 'dart:developer' as developer;
 import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 
+import '../config/env_config.dart';
+
 /// NEPSE Market Data Models
 
 /// Market Index Data (NEPSE, Sensitive, etc.)
@@ -210,24 +212,22 @@ enum MarketStatus { open, closed, preOpen, postClose, unknown }
 
 /// NEPSE API Service
 /// 
-/// Handles communication with NEPSE data sources including:
-/// - Primary Market Data API
+/// Handles communication with NEPSE market data API.
+/// Base URL is configured via environment variables.
 class NepseApiService {
-  static const String _primaryApiBaseUrl = 'https://sharehubnepal.com/api/v1';
-  static const String _backupBaseUrl = 'https://nepsealpha.com/api/v1';
-  
   final http.Client _client;
-  String _currentBaseUrl;
+  late final String _baseUrl;
 
   NepseApiService({http.Client? client})
-      : _client = client ?? http.Client(),
-        _currentBaseUrl = _primaryApiBaseUrl;
+      : _client = client ?? http.Client() {
+    _baseUrl = EnvConfig.marketApiBaseUrl;
+  }
 
   /// Get market indices (NEPSE, Sensitive, Float, etc.)
   Future<List<MarketIndex>> getMarketIndices() async {
     try {
       final response = await _client.get(
-        Uri.parse('$_currentBaseUrl/market/indices'),
+        Uri.parse('$_baseUrl/market/indices'),
       ).timeout(const Duration(seconds: 10));
 
       if (response.statusCode == 200) {
@@ -254,7 +254,7 @@ class NepseApiService {
   Future<List<StockQuote>> getAllQuotes() async {
     try {
       final response = await _client.get(
-        Uri.parse('$_currentBaseUrl/market/quotes'),
+        Uri.parse('$_baseUrl/market/quotes'),
       ).timeout(const Duration(seconds: 15));
 
       if (response.statusCode == 200) {
@@ -272,7 +272,7 @@ class NepseApiService {
   Future<StockQuote?> getQuote(String symbol) async {
     try {
       final response = await _client.get(
-        Uri.parse('$_currentBaseUrl/market/quote/$symbol'),
+        Uri.parse('$_baseUrl/market/quote/$symbol'),
       ).timeout(const Duration(seconds: 10));
 
       if (response.statusCode == 200) {
@@ -289,7 +289,7 @@ class NepseApiService {
   Future<MarketSummary?> getMarketSummary() async {
     try {
       final response = await _client.get(
-        Uri.parse('$_currentBaseUrl/market/summary'),
+        Uri.parse('$_baseUrl/market/summary'),
       ).timeout(const Duration(seconds: 10));
 
       if (response.statusCode == 200) {
@@ -306,7 +306,7 @@ class NepseApiService {
   Future<List<MarketMover>> getTopGainers({int limit = 5}) async {
     try {
       final response = await _client.get(
-        Uri.parse('$_currentBaseUrl/market/gainers?limit=$limit'),
+        Uri.parse('$_baseUrl/market/gainers?limit=$limit'),
       ).timeout(const Duration(seconds: 10));
 
       if (response.statusCode == 200) {
@@ -324,7 +324,7 @@ class NepseApiService {
   Future<List<MarketMover>> getTopLosers({int limit = 5}) async {
     try {
       final response = await _client.get(
-        Uri.parse('$_currentBaseUrl/market/losers?limit=$limit'),
+        Uri.parse('$_baseUrl/market/losers?limit=$limit'),
       ).timeout(const Duration(seconds: 10));
 
       if (response.statusCode == 200) {
@@ -342,7 +342,7 @@ class NepseApiService {
   Future<MarketStatus> getMarketStatus() async {
     try {
       final response = await _client.get(
-        Uri.parse('$_currentBaseUrl/market/status'),
+        Uri.parse('$_baseUrl/market/status'),
       ).timeout(const Duration(seconds: 5));
 
       if (response.statusCode == 200) {
@@ -378,7 +378,7 @@ class NepseApiService {
     
     try {
       final response = await _client.get(
-        Uri.parse('$_currentBaseUrl/market/search?q=$query'),
+        Uri.parse('$_baseUrl/market/search?q=$query'),
       ).timeout(const Duration(seconds: 10));
 
       if (response.statusCode == 200) {
