@@ -1,7 +1,8 @@
 import 'package:flutter/material.dart';
-import 'package:topview/screens/home_page.dart';
+import 'package:topview/screens/enhanced_home_page.dart';
 import 'package:topview/screens/enhanced_transactions_page.dart';
 import 'package:topview/screens/input_page.dart';
+import 'package:topview/screens/holdings_page.dart';
 import 'package:topview/screens/settings_page.dart';
 
 class MainNavigation extends StatefulWidget {
@@ -15,10 +16,10 @@ class _MainNavigationState extends State<MainNavigation> {
   int _currentIndex = 0;
 
   final List<Widget> _pages = [
-    const HomePage(),
+    const EnhancedHomePage(),
     const EnhancedTransactionsPage(),
     const InputPage(), // This will be the elevated center button
-    const Placeholder(), // Portfolio/Holdings placeholder
+    const HoldingsPage(),
     const SettingsPage(),
   ];
 
