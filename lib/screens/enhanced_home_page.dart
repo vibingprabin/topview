@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import 'package:intl/intl.dart';
 
@@ -6,12 +7,12 @@ import '../providers/portfolio_provider.dart';
 import '../providers/market_provider.dart';
 import '../services/nepse_api_service.dart';
 import '../themes/broker_intel_theme.dart';
-import '../widgets/ferrofluid_header.dart';
+import '../themes/ferrofluid/ferrofluid.dart';
 import 'holdings_page.dart';
 import 'enhanced_transactions_page.dart';
 import 'input_page.dart';
 
-import '../widgets/market_mover_card.dart';
+import '../widgets/cards/market_mover_card.dart';
 
 /// Enhanced Home Screen with Broker Intelligence Design
 /// 
@@ -37,10 +38,19 @@ class _EnhancedHomePageState extends State<EnhancedHomePage>
   Widget build(BuildContext context) {
     super.build(context);
     final biColors = context.biColors;
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+
+    // Set status bar style to match the theme
+    SystemChrome.setSystemUIOverlayStyle(SystemUiOverlayStyle(
+      statusBarColor: Colors.transparent,
+      statusBarIconBrightness: isDark ? Brightness.light : Brightness.dark,
+      statusBarBrightness: isDark ? Brightness.dark : Brightness.light,
+    ));
 
     return Scaffold(
       backgroundColor: biColors.background,
       body: SafeArea(
+        top: true,
         child: RefreshIndicator(
           onRefresh: () async {
             await context.read<MarketProvider>().refreshAllData();
@@ -50,26 +60,27 @@ class _EnhancedHomePageState extends State<EnhancedHomePage>
           backgroundColor: biColors.background,
           child: CustomScrollView(
             slivers: [
-              // Ferrofluid Header with NEPSE Index
+              // Header with NEPSE Index
               SliverToBoxAdapter(
-                child: Stack(
-                  children: [
-                    FerrofluidHeader(
-                      height: 200,
-                      blobCount: 18,
-                      onTap: () {
-                        // Show market details on tap
-                        _showMarketDetails(context);
-                      },
-                    ),
-                    // Overlay NEPSE Index Card
-                    Positioned(
-                      bottom: 16,
-                      left: 16,
-                      right: 16,
-                      child: _buildNepseIndexCard(),
-                    ),
-                  ],
+                child: Consumer<PortfolioProvider>(
+                  builder: (context, portfolio, _) {
+                    final totalPL = _calculateTotalUnrealizedPL(portfolio);
+                    return GestureDetector(
+                      onTap: () => _showMarketDetails(context),
+                      child: FerrofluidMeshHeader(
+                        height: 180,
+                        value: totalPL,
+                        enableNoise: false,
+                        child: Padding(
+                          padding: const EdgeInsets.only(bottom: 16, left: 16, right: 16),
+                          child: Align(
+                            alignment: Alignment.bottomCenter,
+                            child: _buildNepseIndexCard(),
+                          ),
+                        ),
+                      ),
+                    );
+                  },
                 ),
               ),
 
@@ -310,10 +321,38 @@ class _EnhancedHomePageState extends State<EnhancedHomePage>
             ? (unrealizedPL / totalInvestment) * 100
             : 0.0;
 
-        return _buildSectionCard(
-          title: 'Portfolio Summary',
+        return FerrofluidCard(
+          value: unrealizedPL,
+          enableShimmer: true,
+          enableGlow: true,
+          enableNoise: true,
+          margin: EdgeInsets.zero,
           child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
+              // Header
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  const Text(
+                    'Portfolio Summary',
+                    style: TextStyle(
+                      fontSize: 17,
+                      fontWeight: FontWeight.w600,
+                      color: BrokerIntelTheme.textPrimary,
+                    ),
+                  ),
+                  Icon(
+                    unrealizedPL >= 0 ? Icons.trending_up : Icons.trending_down,
+                    color: unrealizedPL >= 0
+                        ? BrokerIntelTheme.successGreen
+                        : BrokerIntelTheme.dangerRed,
+                    size: 20,
+                  ),
+                ],
+              ),
+              const SizedBox(height: 16),
+
               // Total Value Row
               Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
@@ -388,7 +427,7 @@ class _EnhancedHomePageState extends State<EnhancedHomePage>
                 ],
               ),
               const SizedBox(height: 12),
-              const Divider(),
+              FerrofluidDivider(animated: true, margin: EdgeInsets.zero),
               const SizedBox(height: 12),
 
               // Secondary Stats
@@ -962,5 +1001,11 @@ class _EnhancedHomePageState extends State<EnhancedHomePage>
       0.0,
       (sum, h) => sum + h.currentValue,
     );
+  }
+
+  double _calculateTotalUnrealizedPL(PortfolioProvider portfolio) {
+    final investment = _calculateTotalInvestment(portfolio);
+    final current = _calculateTotalCurrentValue(portfolio);
+    return current - investment;
   }
 }

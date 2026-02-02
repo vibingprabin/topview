@@ -151,6 +151,16 @@ class MarketSummary {
           : null,
     );
   }
+
+  Map<String, dynamic> toJson() => {
+    'turnover': totalTurnover,
+    'trades': totalTrades,
+    'volume': totalVolume,
+    'advances': advanceCount,
+    'declines': declineCount,
+    'unchanged': unchangedCount,
+    'timestamp': timestamp?.toIso8601String(),
+  };
 }
 
 /// Market Mover (Top Gainer/Loser)
@@ -184,6 +194,15 @@ class MarketMover {
       volume: (json['volume'] ?? 0).toInt(),
     );
   }
+
+  Map<String, dynamic> toJson() => {
+    'symbol': symbol,
+    'name': name,
+    'ltp': ltp,
+    'change': change,
+    'percent_change': changePercent,
+    'volume': volume,
+  };
 }
 
 /// Market Status
@@ -192,11 +211,9 @@ enum MarketStatus { open, closed, preOpen, postClose, unknown }
 /// NEPSE API Service
 /// 
 /// Handles communication with NEPSE data sources including:
-/// - ShareHub Nepal API
-/// - Direct NEPSE endpoints
-/// - Backup data sources
+/// - Primary Market Data API
 class NepseApiService {
-  static const String _shareHubBaseUrl = 'https://sharehubnepal.com/api/v1';
+  static const String _primaryApiBaseUrl = 'https://sharehubnepal.com/api/v1';
   static const String _backupBaseUrl = 'https://nepsealpha.com/api/v1';
   
   final http.Client _client;
@@ -204,7 +221,7 @@ class NepseApiService {
 
   NepseApiService({http.Client? client})
       : _client = client ?? http.Client(),
-        _currentBaseUrl = _shareHubBaseUrl;
+        _currentBaseUrl = _primaryApiBaseUrl;
 
   /// Get market indices (NEPSE, Sensitive, Float, etc.)
   Future<List<MarketIndex>> getMarketIndices() async {

@@ -12,12 +12,12 @@ class EnvConfig {
     }
   }
 
-  // NEPSE API Configuration
-  static String get nepseApiBaseUrl =>
-      dotenv.get('NEPSE_API_BASE_URL', fallback: 'https://www.nepalstock.com.np');
+  // API Configuration
+  static String get marketApiBaseUrl =>
+      dotenv.get('MARKET_API_BASE_URL', fallback: 'https://www.nepalstock.com.np');
   
-  static int get nepseApiTimeout =>
-      int.tryParse(dotenv.get('NEPSE_API_TIMEOUT', fallback: '30000')) ?? 30000;
+  static int get apiTimeout =>
+      int.tryParse(dotenv.get('API_TIMEOUT', fallback: '15')) ?? 15;
 
   // Cache Configuration  
   static int get marketDataCacheDuration =>

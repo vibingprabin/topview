@@ -76,7 +76,7 @@ class BrokerIntelTheme {
           letterSpacing: -0.3,
         ),
       ),
-      cardTheme: CardTheme(
+      cardTheme: CardThemeData(
         color: bgWhite,
         elevation: 0,
         shape: RoundedRectangleBorder(
@@ -198,7 +198,7 @@ class BrokerIntelTheme {
           letterSpacing: -0.3,
         ),
       ),
-      cardTheme: CardTheme(
+      cardTheme: CardThemeData(
         color: darkSurface,
         elevation: 0,
         shape: RoundedRectangleBorder(

@@ -55,6 +55,27 @@ class ShareData {
     );
   }
 
+  /// Factory constructor for Primary API response
+  /// API returns: { symbol, ltp, changePercent, ... }
+  factory ShareData.fromApiMap(Map<String, dynamic> map) {
+    final changePercent = map['changePercent'];
+    String percentStr;
+    if (changePercent is num) {
+      // Format with sign: +1.23% or -1.23%
+      percentStr = '${changePercent >= 0 ? '' : ''}${changePercent.toStringAsFixed(2)}%';
+    } else if (changePercent is String) {
+      percentStr = changePercent.contains('%') ? changePercent : '$changePercent%';
+    } else {
+      percentStr = '0.00%';
+    }
+
+    return ShareData(
+      symbol: map['symbol'] as String? ?? '',
+      ltp: map['ltp']?.toString() ?? '0',
+      percentChange: percentStr,
+    );
+  }
+
   @override
   String toString() {
     return 'ShareData(symbol: $symbol, ltp: $ltp, percentChange: $percentChange)';

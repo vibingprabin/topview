@@ -1,8 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:topview/screens/enhanced_home_page.dart';
 import 'package:topview/screens/enhanced_transactions_page.dart';
-import 'package:topview/screens/input_page.dart';
-import 'package:topview/screens/holdings_page.dart';
+import 'package:topview/screens/portfolio_analyser_page.dart';
 import 'package:topview/screens/settings_page.dart';
 
 class MainNavigation extends StatefulWidget {
@@ -13,14 +12,13 @@ class MainNavigation extends StatefulWidget {
 }
 
 class _MainNavigationState extends State<MainNavigation> {
-  int _currentIndex = 0;
+  int _currentIndex = 1; // Start on Home (index 1)
 
   final List<Widget> _pages = [
-    const EnhancedHomePage(),
-    const EnhancedTransactionsPage(),
-    const InputPage(), // This will be the elevated center button
-    const HoldingsPage(),
-    const SettingsPage(),
+    const PortfolioAnalyserPage(),  // Index 0: Portfolio Analyser (leftmost)
+    const EnhancedHomePage(),       // Index 1: Home
+    const EnhancedTransactionsPage(), // Index 2: Transactions
+    const SettingsPage(),           // Index 3: Settings
   ];
 
   @override
@@ -33,97 +31,48 @@ class _MainNavigationState extends State<MainNavigation> {
         children: _pages,
       ),
       bottomNavigationBar: Container(
-        decoration: BoxDecoration(          boxShadow: [
+        decoration: BoxDecoration(
+          boxShadow: [
             BoxShadow(
               color: Colors.black.withValues(alpha: 0.1),
               blurRadius: 8,
               offset: const Offset(0, -2),
             ),
           ],
-        ),        child: BottomAppBar(
-          height: 60,
-          color: theme.bottomNavigationBarTheme.backgroundColor,
-          padding: EdgeInsets.zero, // Changed: Remove horizontal padding from BottomAppBar
-          child: Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween, 
-            children: [
-              Expanded(child: _buildNavItem(0, Icons.home, 'Home')),
-              Expanded(child: _buildNavItem(1, Icons.receipt_long, 'Transactions')),
-              const SizedBox(width: 75), // Changed: Adjusted space for floating action button
-              Expanded(child: _buildNavItem(3, Icons.pie_chart, 'Portfolio')),
-              Expanded(child: _buildNavItem(4, Icons.settings, 'Settings')),
-            ],
-          ),
         ),
-      ),
-      floatingActionButton: Container(
-        decoration: BoxDecoration(
-          gradient: LinearGradient(
-            colors: [
-              theme.colorScheme.primary,
-              theme.colorScheme.secondary,
-            ],
-            begin: Alignment.topLeft,
-            end: Alignment.bottomRight,
-          ),
-          borderRadius: BorderRadius.circular(30),          boxShadow: [
-            BoxShadow(
-              color: theme.colorScheme.primary.withValues(alpha: 0.3),
-              blurRadius: 12,
-              offset: const Offset(0, 4),
-            ),
-          ],
-        ),
-        child: FloatingActionButton(
-          onPressed: () {
+        child: BottomNavigationBar(
+          currentIndex: _currentIndex,
+          onTap: (index) {
             setState(() {
-              _currentIndex = 2;
+              _currentIndex = index;
             });
           },
-          backgroundColor: Colors.transparent,
-          elevation: 0,
-          child: const Icon(
-            Icons.add,
-            size: 28,
-            color: Colors.white,
-          ),
-        ),
-      ),
-      floatingActionButtonLocation: FloatingActionButtonLocation.centerDocked,
-    );
-  }
-
-  Widget _buildNavItem(int index, IconData icon, String label) {
-    final theme = Theme.of(context);
-    final isSelected = _currentIndex == index;
-    
-    return GestureDetector(
-      onTap: () {
-        setState(() {
-          _currentIndex = index;
-        });
-      },      child: Container(
-        padding: const EdgeInsets.symmetric(vertical: 4, horizontal: 1), // Changed: Minimal horizontal padding
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(
-              icon,
-              color: isSelected 
-                ? theme.bottomNavigationBarTheme.selectedItemColor
-                : theme.bottomNavigationBarTheme.unselectedItemColor,
-              size: 22, // Changed: Slightly smaller icon
+          type: BottomNavigationBarType.fixed,
+          backgroundColor: theme.bottomNavigationBarTheme.backgroundColor,
+          selectedItemColor: theme.bottomNavigationBarTheme.selectedItemColor,
+          unselectedItemColor: theme.bottomNavigationBarTheme.unselectedItemColor,
+          selectedFontSize: 11,
+          unselectedFontSize: 10,
+          items: const [
+            BottomNavigationBarItem(
+              icon: Icon(Icons.analytics_outlined),
+              activeIcon: Icon(Icons.analytics),
+              label: 'Analyser',
             ),
-            const SizedBox(height: 2),
-            Text(
-              label,
-              style: TextStyle(
-                fontSize: 9,
-                color: isSelected 
-                  ? theme.bottomNavigationBarTheme.selectedItemColor
-                  : theme.bottomNavigationBarTheme.unselectedItemColor,
-                fontWeight: isSelected ? FontWeight.w600 : FontWeight.normal,
-              ),
+            BottomNavigationBarItem(
+              icon: Icon(Icons.home_outlined),
+              activeIcon: Icon(Icons.home),
+              label: 'Home',
+            ),
+            BottomNavigationBarItem(
+              icon: Icon(Icons.receipt_long_outlined),
+              activeIcon: Icon(Icons.receipt_long),
+              label: 'Transactions',
+            ),
+            BottomNavigationBarItem(
+              icon: Icon(Icons.settings_outlined),
+              activeIcon: Icon(Icons.settings),
+              label: 'Settings',
             ),
           ],
         ),
