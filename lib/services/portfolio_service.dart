@@ -1,13 +1,14 @@
 import 'package:topview/models/holding.dart';
 import 'package:topview/models/transaction.dart';
 import 'package:topview/models/share_data.dart'; // Import ShareData
+import 'stop_loss_dao.dart'; // Import StopLossDAO
 
 class PortfolioService {
   // Calculate current holdings based on transactions
-  static List<Holding> calculateHoldings(
+  static Future<List<Holding>> calculateHoldings(
     List<Transaction> transactions, 
     Map<String, ShareData> liveShareData, // Add live share data as a parameter
-  ) {
+  ) async {
     final Map<String, List<Transaction>> groupedBySymbol = {};
     for (var transaction in transactions) {
       if (!groupedBySymbol.containsKey(transaction.symbol)) {
@@ -15,6 +16,9 @@ class PortfolioService {
       }
       groupedBySymbol[transaction.symbol]!.add(transaction);
     }
+
+    // Load stop-loss settings once
+    final stopLossMap = await StopLossDAO.getAllAsMap();
 
     List<Holding> holdings = [];
     groupedBySymbol.forEach((symbol, transactions) {
@@ -57,6 +61,9 @@ class PortfolioService {
         double unrealizedPL = currentValue - currentInvestedValue;
         double unrealizedPLPercentage = (currentInvestedValue != 0 && currentInvestedValue.abs() > 0.001) ? (unrealizedPL / currentInvestedValue) * 100 : 0;
 
+        // Get stop-loss settings for this symbol
+        final stopLossSettings = stopLossMap[symbol];
+
         holdings.add(Holding(
           symbol: symbol,
           quantity: totalQuantity,
@@ -67,6 +74,8 @@ class PortfolioService {
           currentValue: currentValue,
           unrealizedPL: unrealizedPL,
           unrealizedPLPercentage: unrealizedPLPercentage,
+          stopLossPrice: stopLossSettings?.stopLossPrice,
+          stopLossEnabled: stopLossSettings?.enabled ?? false,
         ));
       }
     });

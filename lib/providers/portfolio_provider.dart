@@ -7,10 +7,11 @@ import 'package:topview/services/portfolio_service.dart';
 import 'package:topview/services/sms_service.dart';
 import 'package:topview/services/client_dao.dart';
 import 'package:topview/utils/message_parser.dart';
-import '../services/transaction_dao_new.dart';
+import '../services/transaction_dao.dart';
 import '../models/share_data.dart'; // Import ShareData
 import '../services/share_scraping_service.dart'; // Import ShareScrapingService
 import '../services/database_service.dart'; // Import DatabaseService for share data
+import '../services/stop_loss_monitor_service.dart'; // Import StopLossMonitorService
 
 class PortfolioProvider extends ChangeNotifier {
   List<Transaction> _transactions = [];
@@ -25,6 +26,7 @@ class PortfolioProvider extends ChangeNotifier {
 
   Map<String, ShareData> _liveShareDataMap = {}; // To store live share data
   final ShareScrapingService _shareScrapingService = ShareScrapingService(); // Instance of scraping service
+  final StopLossMonitorService _stopLossMonitor = StopLossMonitorService(); // Instance of stop-loss monitor
   bool _isShareDataLoading = false;
   String? _shareDataError;
   String? _shareDataDate;
@@ -46,6 +48,9 @@ class PortfolioProvider extends ChangeNotifier {
   // Initialize portfolio data
   Future<void> initialize() async {
     try {
+      // Initialize stop-loss monitoring
+      await _stopLossMonitor.startMonitoring();
+      
       await _loadClientsFromDatabase();
       if (_availableClientIds.isNotEmpty) {
         setClientId(_availableClientIds.first);
@@ -110,9 +115,11 @@ class PortfolioProvider extends ChangeNotifier {
     notifyListeners();
   }
     // Set active client ID
-  void setClientId(String clientId) {
+  Future<void> setClientId(String clientId) async {
     _currentClientId = clientId;
-    loadTransactions(); // This will also trigger fetchLiveShareData if needed or use existing
+    _transactions = await TransactionDAO.getTransactionsByClientId(clientId);
+    _lastTransaction = await TransactionDAO.getLatestTransaction(clientId);
+    await _calculatePortfolioMetrics();
   }
 
   // Load transactions for current client ID
@@ -124,7 +131,7 @@ class PortfolioProvider extends ChangeNotifier {
       // Fetch live share data before calculating metrics
       // This ensures metrics are calculated with the latest available prices
       await fetchLiveShareData(); 
-      _calculatePortfolioMetrics(); // This will now use _liveShareDataMap
+      await _calculatePortfolioMetrics(); // This will now use _liveShareDataMap
       notifyListeners();
     } catch (e) {
       debugPrint('Error loading transactions: $e');
@@ -222,11 +229,15 @@ class PortfolioProvider extends ChangeNotifier {
   }
 
   // Calculate all portfolio metrics
-  void _calculatePortfolioMetrics() {
+  Future<void> _calculatePortfolioMetrics() async {
     // Pass the live share data to calculateHoldings
-    _holdings = PortfolioService.calculateHoldings(_transactions, _liveShareDataMap);
+    _holdings = await PortfolioService.calculateHoldings(_transactions, _liveShareDataMap);
     _realizedProfitLoss = PortfolioService.calculateRealizedProfitLoss(_transactions);
     _breakEvenValue = PortfolioService.calculateBreakEvenValue(_transactions, _holdings);
+    
+    // Check for stop-loss triggers after updating holdings
+    await _stopLossMonitor.checkHoldings(_holdings);
+    
     // Any other metrics that depend on holdings or live data should be recalculated here
     notifyListeners(); // Notify listeners after all metrics are updated
   }
